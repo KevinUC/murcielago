@@ -23,7 +23,7 @@ bool fs_mount_read_superblock();
 
 /************************* FAT BLOCK ********************************/
 
-void set_free_FAT_block_cnt();
+void set_free_FAT_entry_cnt();
 bool fs_mount_read_fat_section();
 
 #endif /* _MYLIBRARY_H */

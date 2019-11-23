@@ -57,7 +57,7 @@ typedef struct fatblock
 } __attribute__((__packed__)) fatblock; /* a single fat block*/
 
 fatblock *_fat_section; /* array of fat blocks */
-int _free_FAT_block_cnt = -1;
+int _free_FAT_entry_cnt = -1;
 int _fat_block_strt_idx = 1;
 int _num_of_fat_entries_per_block = 2048;
 
@@ -71,7 +71,7 @@ void fs_print_info()
     printf("rdir_blk=%d\n", _superblock._root_blk_strt_idx);
     printf("data_blk=%d\n", _superblock._data_blk_strt_idx);
     printf("data_blk_count=%d\n", _superblock._total_data_blk_cnt);
-    printf("fat_free_ratio=%d/%d\n", _free_FAT_block_cnt, _superblock._total_data_blk_cnt);
+    printf("fat_free_ratio=%d/%d\n", _free_FAT_entry_cnt, _superblock._total_data_blk_cnt);
     printf("rdir_free_ratio=%d/%d\n", _free_root_entry_cnt, FS_FILE_MAX_COUNT);
 }
 
@@ -84,7 +84,7 @@ void fs_unmount_procedure()
 {
     free(_fat_section);
     _mounted = false;
-    _free_FAT_block_cnt = _free_root_entry_cnt = -1;
+    _free_FAT_entry_cnt = _free_root_entry_cnt = -1;
 }
 
 void set_free_root_entry_cnt()
@@ -121,27 +121,40 @@ bool fs_mount_read_fat_section()
         return false;
     }
 
-    set_free_FAT_block_cnt();
+    set_free_FAT_entry_cnt();
 
     return true;
 }
 
-void set_free_FAT_block_cnt()
+void set_free_FAT_entry_cnt()
 {
     int cnt = 0;
+    bool quit = false;
 
     for (int i = 0; i < _superblock._total_FAT_blk_cnt; i++)
     {
         for (int j = 0; j < _num_of_fat_entries_per_block; j++)
         {
+            /* check for out of bound */
+            if (i * _num_of_fat_entries_per_block + j + 1 > _superblock._total_data_blk_cnt)
+            {
+                quit = true;
+                break;
+            }
+
             if (_fat_section[i]._entry[j] == 0) /* 0 corresponds to free data block */
             {
                 cnt++;
             }
         }
+
+        if (quit)
+        {
+            break;
+        }
     }
 
-    _free_FAT_block_cnt = cnt;
+    _free_FAT_entry_cnt = cnt;
 }
 
 bool fs_mount_init(const char *diskname)
@@ -151,7 +164,7 @@ bool fs_mount_init(const char *diskname)
     _mounted = false;
     _free_root_entry_cnt = -1;
     _signature = "ECS150FS";
-    _free_FAT_block_cnt = -1;
+    _free_FAT_entry_cnt = -1;
     _fat_block_strt_idx = 1;
     _num_of_fat_entries_per_block = 2048;
 
