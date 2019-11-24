@@ -62,6 +62,17 @@ int _free_FAT_entry_cnt = -1;
 int _fat_block_strt_idx = 1;
 int _num_of_fat_entries_per_block = 2048;
 
+/************************* FILE DESCRIPTOR TABLE *******************/
+
+typedef struct fd
+{
+    bool _in_use; /* indicate whether this fd is currently in use */
+    size_t _offset;
+    uint8_t _filename[16];
+} fd;
+
+fd _fd_table[FS_OPEN_MAX_COUNT]; /* fd ranges from 0 to 31 */
+
 /************************* FUNCTION IMPLEMENTATION *******************/
 
 void fs_print_info()
@@ -74,6 +85,50 @@ void fs_print_info()
     printf("data_blk_count=%d\n", _superblock._total_data_blk_cnt);
     printf("fat_free_ratio=%d/%d\n", _free_FAT_entry_cnt, _superblock._total_data_blk_cnt);
     printf("rdir_free_ratio=%d/%d\n", _free_root_entry_cnt, FS_FILE_MAX_COUNT);
+}
+
+int get_new_fd(const char *filename)
+{
+    for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+    {
+        if (!_fd_table[i]._in_use)
+        {
+            _fd_table[i]._in_use = true; /* mark this fd as used */
+            memcpy(_fd_table[i]._filename, filename, strlen(filename) + 1);
+
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+bool file_is_open(const char *filename)
+{
+    for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+    {
+        if (_fd_table[i]._in_use && strcmp((const char *)_fd_table[i]._filename, filename) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void change_fd_offset(int fd, size_t offset)
+{
+    _fd_table[fd]._offset = offset;
+}
+
+void close_fd(int fd)
+{
+    _fd_table[fd]._in_use = false;
+    _fd_table[fd]._offset = 0;
+}
+
+bool fd_is_in_use(int fd)
+{
+    return _fd_table[fd]._in_use;
 }
 
 void fs_print_ls()
@@ -169,6 +224,22 @@ void create_new_file_on_root(const char *filename)
     }
 }
 
+int find_file_size(int fd)
+{
+
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+    {
+        bool root_entry_is_valid = _rootdirectory._entrys[i]._first_data_blk_idx != 0;
+
+        if (root_entry_is_valid && strcmp((const char *)_fd_table[fd]._filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
+        {
+            return _rootdirectory._entrys[i]._file_size_in_bytes;
+        }
+    }
+
+    return -1;
+}
+
 void delete_file(const char *filename)
 {
     _free_root_entry_cnt++;
@@ -233,6 +304,94 @@ void delete_file(const char *filename)
     }
 }
 
+uint16_t find_data_blk_idx_by_offset(int fd)
+{
+    size_t offset = _fd_table[fd]._offset;
+
+    uint16_t data_blk_idx = find_first_data_blk_idx_of_a_file((const char *)_fd_table[fd]._filename);
+    int relative_blk_idx = offset / 4096;
+
+    for (int i = 0; i < relative_blk_idx; i++)
+    {
+        data_blk_idx = find_idx_of_next_data_blk(data_blk_idx); /* go to next data blk */
+    }
+
+    return data_blk_idx;
+}
+
+int fs_read_impl(int fd, void *buf, size_t count)
+{
+
+    int file_size = find_file_size(fd);
+
+    if (_fd_table[fd]._offset == file_size)
+    {
+        return 0; /* already at eof */
+    }
+
+    if (_fd_table[fd]._offset + count > file_size)
+    {
+        count = file_size - _fd_table[fd]._offset; /* truncate number of bytes to read */
+    }
+
+    uint16_t data_blk_idx = find_data_blk_idx_by_offset(fd); /* find index of first data block */
+    int buf_offset = 0;
+    int remaining_bytes_to_read = count;
+    int in_blk_offset = _fd_table[fd]._offset % 4096; /* in_blk_offset lies in between 0 and 4095 */
+    uint8_t data_blk[4096];
+
+    assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* read first data block */
+
+    while (remaining_bytes_to_read != 0)
+    {
+        if (in_blk_offset + remaining_bytes_to_read <= 4095) /* last blk to read */
+        {
+            memcpy(buf + buf_offset, data_blk + in_blk_offset, remaining_bytes_to_read);
+            break;
+        }
+        else
+        {
+            int num_of_bytes_to_read_from_this_blk = 4096 - in_blk_offset;
+
+            remaining_bytes_to_read -= num_of_bytes_to_read_from_this_blk;
+            memcpy(buf + buf_offset, data_blk + in_blk_offset, num_of_bytes_to_read_from_this_blk);
+            in_blk_offset = 0; /* for next blk, we will read from start */
+            buf_offset += num_of_bytes_to_read_from_this_blk;
+            data_blk_idx = find_idx_of_next_data_blk(data_blk_idx);
+            assert(data_blk_idx != FAT_EOC);                                                          /* find next data blk idx */
+            assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* update data blk */
+        }
+    }
+
+    _fd_table[fd]._offset += count; /* increment fd offset by the amount we read */
+
+    return count;
+}
+
+uint16_t find_idx_of_next_data_blk(uint16_t cur_data_blk_idx)
+{
+
+    int fat_blk_idx = cur_data_blk_idx / 2048;
+    int fat_entry_idx = cur_data_blk_idx % 2048;
+
+    return _fat_section[fat_blk_idx]._entry[fat_entry_idx];
+}
+
+uint16_t find_first_data_blk_idx_of_a_file(const char *filename)
+{
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+    {
+        bool root_entry_is_valid = _rootdirectory._entrys[i]._first_data_blk_idx != 0;
+
+        if (root_entry_is_valid && strcmp(filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
+        {
+            return _rootdirectory._entrys[i]._first_data_blk_idx;
+        }
+    }
+
+    return -1;
+}
+
 bool filename_already_exists_in_root(const char *filename)
 {
     for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
@@ -241,7 +400,7 @@ bool filename_already_exists_in_root(const char *filename)
 
         if (root_entry_is_valid && strcmp(filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
         {
-            printf("filename exists in the root dir\n");
+            //printf("filename exists in the root dir\n");
             return true;
         }
     }
@@ -307,14 +466,6 @@ void set_free_FAT_entry_cnt()
 bool fs_mount_init(const char *diskname)
 {
 
-    FAT_EOC = 0xFFFF;
-    _mounted = false;
-    _free_root_entry_cnt = -1;
-    _signature = "ECS150FS";
-    _free_FAT_entry_cnt = -1;
-    _fat_block_strt_idx = 1;
-    _num_of_fat_entries_per_block = 2048;
-
     if (!fs_mount_read_superblock())
     {
         return false;
@@ -328,6 +479,13 @@ bool fs_mount_init(const char *diskname)
     if (!fs_mount_read_fat_section())
     {
         return false;
+    }
+
+    /* init fd table */
+    for (int i = 0; i < FS_OPEN_MAX_COUNT; i++)
+    {
+        _fd_table[i]._in_use = false;
+        _fd_table[i]._offset = 0;
     }
 
     _mounted = true;

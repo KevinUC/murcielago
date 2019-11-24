@@ -93,6 +93,12 @@ int fs_delete(const char *filename)
 		return -1;
 	}
 
+	/* check if filename is currently open */
+	if (file_is_open(filename))
+	{
+		return -1;
+	}
+
 	delete_file(filename);
 
 	return 0;
@@ -112,25 +118,60 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
-	/* TODO: Phase 3 */
-	return 0;
+	int new_fd = get_new_fd(filename);
+
+	/* check if there are already %FS_OPEN_MAX_COUNT files currently open */
+	if (new_fd < 0)
+	{
+		return -1;
+	}
+
+	/* check if filename is valid and exists */
+	if (!is_filename_valid(filename) || !filename_already_exists_in_root(filename))
+	{
+		return -1;
+	}
+
+	return new_fd;
 }
 
 int fs_close(int fd)
 {
-	/* TODO: Phase 3 */
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
+	{
+		return -1;
+	}
+
+	close_fd(fd);
+
 	return 0;
 }
 
 int fs_stat(int fd)
 {
-	/* TODO: Phase 3 */
-	return 0;
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
+	{
+		return -1;
+	}
+
+	return find_file_size(fd);
 }
 
 int fs_lseek(int fd, size_t offset)
 {
-	/* TODO: Phase 3 */
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
+	{
+		return -1;
+	}
+
+	/* check if offset is larger than the current file size */
+	if (offset > find_file_size(fd))
+	{
+		return -1;
+	}
+
+	change_fd_offset(fd, offset);
+
 	return 0;
 }
 
@@ -142,6 +183,10 @@ int fs_write(int fd, void *buf, size_t count)
 
 int fs_read(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
-	return 0;
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
+	{
+		return -1;
+	}
+
+	return fs_read_impl(fd, buf, count);
 }
