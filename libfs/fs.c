@@ -53,19 +53,60 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
-	/* TODO: Phase 2 */
+	/* check if root block is full */
+	if (root_block_is_full())
+	{
+		return -1;
+	}
+
+	/* check if filename is NULL terminated and has valid length */
+	if (!is_filename_valid(filename))
+	{
+		return -1;
+	}
+
+	/* check if filename already exists */
+	if (filename_already_exists_in_root(filename))
+	{
+		return -1;
+	}
+
+	/* add the new file to system and disk */
+	create_new_file_on_root(filename);
+
 	return 0;
 }
 
 int fs_delete(const char *filename)
 {
-	/* TODO: Phase 2 */
+	/* TODO: check if the file is currently open */
+
+	/* check if filename is NULL terminated and has valid length */
+	if (!is_filename_valid(filename))
+	{
+		return -1;
+	}
+
+	/* check if filename exists */
+	if (!filename_already_exists_in_root(filename))
+	{
+		return -1;
+	}
+
+	delete_file(filename);
+
 	return 0;
 }
 
 int fs_ls(void)
 {
-	/* TODO: Phase 2 */
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
+	fs_print_ls();
+
 	return 0;
 }
 
