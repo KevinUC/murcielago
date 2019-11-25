@@ -22,7 +22,9 @@ bool root_block_is_full();
 bool filename_already_exists_in_root(const char *filename);
 void create_new_file_on_root(const char *filename);
 int find_file_size(int fd);
+void update_file_size(int fd, uint32_t size);
 uint16_t find_first_data_blk_idx_of_a_file(const char *filename);
+void update_idx_of_1st_data_blk_in_root(int fd, uint16_t idx);
 
 /************************* SUPER BLOCK ********************************/
 
@@ -34,6 +36,8 @@ void set_free_FAT_entry_cnt();
 bool fs_mount_read_fat_section();
 uint16_t find_data_blk_idx_by_offset(int fd);
 uint16_t find_idx_of_next_data_blk(uint16_t cur_data_blk_idx);
+void fat_allocate_extra_entry(int num, int *actual_amount_allocated, uint16_t *idx_of_1st_new_entry);
+void update_last_fat_entry_of_a_file(int fd, uint16_t new_entry);
 
 /************************* FILE DESCRIPTOR TABLE ********************************/
 int get_new_fd(const char *filename);
@@ -43,10 +47,12 @@ void close_fd(int fd);
 void change_fd_offset(int fd, size_t offset);
 
 /************************* FS_READ_AND_WRITE ***************************/
+
 int fs_read_impl(int fd, void *buf, size_t count);
 int fs_write_impl(int fd, void *buf, size_t count);
 
 /************************* HELPER METHODS ***************************/
 bool is_filename_valid(const char *filename);
+int fat_ceil(int file_size_in_bytes);
 
 #endif /* _MYLIBRARY_H */

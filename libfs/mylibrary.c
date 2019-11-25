@@ -154,19 +154,19 @@ bool is_filename_valid(const char *filename)
     {
         if (filename[i] == '\0')
         {
-            if (i == 0)
+            if (i == 0) /* filename is empty */
             {
                 break;
             }
             else
             {
-                printf("filename is valid\n");
+                //printf("filename is valid\n");
                 return true;
             }
         }
         i++;
     }
-    printf("filename is NOT valid\n");
+    //printf("filename is NOT valid\n");
     return false;
 }
 
@@ -244,7 +244,7 @@ void delete_file(const char *filename)
 {
     _free_root_entry_cnt++;
 
-    int idx_of_next_data_blk = -100;
+    uint16_t idx_of_next_data_blk = 0;
     bool file_is_empty = false;
 
     /* 1. delete file on root block */
@@ -270,7 +270,7 @@ void delete_file(const char *filename)
     }
 
     /* 2. delete file on fat block */
-    assert(idx_of_next_data_blk != -100);
+    assert(idx_of_next_data_blk != 0);
 
     if (file_is_empty)
     {
@@ -319,14 +319,224 @@ uint16_t find_data_blk_idx_by_offset(int fd)
     return data_blk_idx;
 }
 
+void fat_allocate_extra_entry(int num, int *actual_amount_allocated, uint16_t *idx_of_1st_new_entry)
+{
+    bool find_first = true;
+    bool quit = false;
+    int prev_section_idx = -1;
+    int prev_entry_idx = -1;
+
+    *actual_amount_allocated = 0; /* at worst case, no new entry is allocated */
+
+    if (num == 0)
+    {
+        return; /* no block needed to allocate */
+    }
+
+    /* write change to superblock */
+
+    for (int i = 0; i < _superblock._total_FAT_blk_cnt; i++)
+    {
+        for (int j = 0; j < _num_of_fat_entries_per_block; j++)
+        {
+            /* we have iterated thru all fat entries, but cannot find sufficent space */
+            if (i * _num_of_fat_entries_per_block + j + 1 > _superblock._total_data_blk_cnt)
+            {
+                quit = true;
+                break;
+            }
+
+            if (_fat_section[i]._entry[j] == 0) /* 0 corresponds to free data block */
+            {
+                *actual_amount_allocated = *actual_amount_allocated + 1;
+
+                if (find_first)
+                {
+                    /* find the first availble block */
+                    *idx_of_1st_new_entry = i * _num_of_fat_entries_per_block + j;
+                    find_first = false;
+                }
+                else
+                {
+                    /* point prev entry to this entry */
+                    _fat_section[prev_section_idx]._entry[prev_entry_idx] = i * _num_of_fat_entries_per_block + j;
+                }
+
+                /* set cur entry as prev */
+                prev_section_idx = i;
+                prev_entry_idx = j;
+
+                /* temporarily mark cur entry as eof */
+                _fat_section[i]._entry[j] = FAT_EOC;
+
+                if (*actual_amount_allocated == num)
+                {
+                    /* all blocks have been allocated */
+                    quit = true;
+                    break;
+                }
+            }
+        } // inner for
+
+        if (quit)
+        {
+            break;
+        }
+    } // outer for
+
+    /* write change to fat section */
+    for (int i = 0; i < _superblock._total_FAT_blk_cnt; i++)
+    {
+        assert(block_write(_fat_block_strt_idx + i, (void *)&_fat_section[i]) == 0);
+    }
+}
+
+void update_idx_of_1st_data_blk_in_root(int fd, uint16_t idx)
+{
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+    {
+        bool root_entry_is_valid = _rootdirectory._entrys[i]._first_data_blk_idx != 0;
+
+        if (root_entry_is_valid && strcmp((const char *)_fd_table[fd]._filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
+        {
+            /* write change to root block */
+            _rootdirectory._entrys[i]._first_data_blk_idx = idx;
+            block_write(_superblock._root_blk_strt_idx, (void *)&_rootdirectory);
+            return;
+        }
+    }
+
+    printf("update_idx_of_1st_data_blk_in_root fails \n");
+}
+
+void update_last_fat_entry_of_a_file(int fd, uint16_t new_entry)
+{
+    /* find idx of first fat entry of the file */
+    uint16_t data_blk_idx = find_first_data_blk_idx_of_a_file((const char *)_fd_table[fd]._filename);
+
+    while (data_blk_idx != FAT_EOC)
+    {
+        data_blk_idx = find_idx_of_next_data_blk(data_blk_idx);
+    }
+
+    /* write change to fat block */
+    _fat_section[data_blk_idx / 2048]._entry[data_blk_idx % 2048] = new_entry;
+    assert(block_write(_fat_block_strt_idx + (data_blk_idx / 2048), &_fat_section[data_blk_idx / 2048]) == 0);
+}
+
+void update_file_size(int fd, uint32_t size)
+{
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++)
+    {
+        bool root_entry_is_valid = _rootdirectory._entrys[i]._first_data_blk_idx != 0;
+
+        if (root_entry_is_valid && strcmp((const char *)_fd_table[fd]._filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
+        {
+            /* write change to root block */
+            _rootdirectory._entrys[i]._file_size_in_bytes = size;
+            block_write(_superblock._root_blk_strt_idx, (void *)&_rootdirectory);
+            return;
+        }
+    }
+
+    printf("update_file_size fails \n");
+}
+
+int fs_write_impl(int fd, void *buf, size_t count)
+{
+    if (count <= 0)
+    {
+        return 0; /* nothing to write to the disk */
+    }
+
+    /* 1. allocate additonal fat block if needed */
+    int cur_file_size = find_file_size(fd);
+    int cur_total_byte_allocated = fat_ceil(cur_file_size);
+    int cur_file_offset = _fd_table[fd]._offset;
+
+    if (cur_file_offset + count > cur_total_byte_allocated)
+    {
+        /* start allocating extra fat entry */
+        int num_of_extra_entry_needed = (fat_ceil(cur_file_offset + count) - cur_total_byte_allocated) / 4096;
+        int actual_amount_allocated = 10000;       /* could be less than amount required if disk runs out of space */
+        uint16_t idx_of_1st_new_fat_entry = 10000; /* we need this to concatnate the last entry of the original file */
+
+        fat_allocate_extra_entry(num_of_extra_entry_needed, &actual_amount_allocated, &idx_of_1st_new_fat_entry);
+        assert(actual_amount_allocated != 10000);
+        assert(idx_of_1st_new_fat_entry != 10000);
+
+        //printf("actual_num_of_fat_entries_allocated = %d\n", actual_amount_allocated);
+
+        if (actual_amount_allocated < num_of_extra_entry_needed)
+        {
+            /* truncate number of bytes to write */
+            count = (fat_ceil(cur_file_size) - cur_file_offset) + 4096 * actual_amount_allocated;
+        }
+
+        if (cur_file_size == 0)
+        {
+            /* if file is currently empty, need to update index of the first data block on root */
+            update_idx_of_1st_data_blk_in_root(fd, idx_of_1st_new_fat_entry);
+        }
+        else
+        {
+            /* file is currently not empty, need to update the last fat entry */
+            update_last_fat_entry_of_a_file(fd, idx_of_1st_new_fat_entry);
+        }
+    }
+
+    /* 2. write contents to the disk, the logic is mostly identical to fs_read_impl() */
+    uint16_t data_blk_idx = find_data_blk_idx_by_offset(fd); /* find index of first data block */
+    int buf_offset = 0;
+    int remaining_bytes_to_write = count;
+    int in_blk_offset = cur_file_offset % 4096; /* in_blk_offset lies in between 0 and 4095 */
+    uint8_t data_blk[4096];
+
+    assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0);
+
+    while (remaining_bytes_to_write != 0)
+    {
+        if (in_blk_offset + remaining_bytes_to_write <= 4096) /* last blk to write */
+        {
+            memcpy(data_blk + in_blk_offset, buf + buf_offset, remaining_bytes_to_write);              /* input_buf => data_buf */
+            assert(block_write(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* data_buf => disk */
+            break;
+        }
+        else
+        {
+            int num_of_bytes_to_write_to_this_blk = 4096 - in_blk_offset;
+            remaining_bytes_to_write -= num_of_bytes_to_write_to_this_blk;
+
+            memcpy(data_blk + in_blk_offset, buf + buf_offset, num_of_bytes_to_write_to_this_blk);     /* input_buf => data_buf */
+            assert(block_write(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* data_buf => disk */
+
+            in_blk_offset = 0; /* for next blk, we will write from start */
+            buf_offset += num_of_bytes_to_write_to_this_blk;
+            data_blk_idx = find_idx_of_next_data_blk(data_blk_idx);
+            assert(data_blk_idx != FAT_EOC); /* find next data blk idx */
+
+            assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* fetch next data block */
+        }
+    }
+
+    _fd_table[fd]._offset += count; /* increment fd offset by the amount we write */
+
+    /* update file size if necessary */
+    if (cur_file_offset + count > cur_file_size)
+    {
+        update_file_size(fd, (uint32_t)(cur_file_offset + count));
+    }
+
+    return count;
+}
+
 int fs_read_impl(int fd, void *buf, size_t count)
 {
-
     int file_size = find_file_size(fd);
 
-    if (_fd_table[fd]._offset == file_size)
+    if (_fd_table[fd]._offset == file_size || count <= 0)
     {
-        return 0; /* already at eof */
+        return 0; /* already at eof or non-positive value of count  */
     }
 
     if (_fd_table[fd]._offset + count > file_size)
@@ -344,7 +554,7 @@ int fs_read_impl(int fd, void *buf, size_t count)
 
     while (remaining_bytes_to_read != 0)
     {
-        if (in_blk_offset + remaining_bytes_to_read <= 4095) /* last blk to read */
+        if (in_blk_offset + remaining_bytes_to_read <= 4096) /* last blk to read */
         {
             memcpy(buf + buf_offset, data_blk + in_blk_offset, remaining_bytes_to_read);
             break;
@@ -389,7 +599,8 @@ uint16_t find_first_data_blk_idx_of_a_file(const char *filename)
         }
     }
 
-    return -1;
+    printf("find_first_data_blk_idx_of_a_file fails \n");
+    return 1000;
 }
 
 bool filename_already_exists_in_root(const char *filename)
@@ -422,7 +633,7 @@ bool fs_mount_read_fat_section()
         }
     }
 
-    if (_fat_section[0]._entry[0] != FAT_EOC) /* first entry of FAT is unused */
+    if (_fat_section[0]._entry[0] != FAT_EOC) /* check if first entry of FAT is unused */
     {
         return false;
     }
@@ -536,4 +747,15 @@ bool fs_mount_read_superblock()
     }
 
     return true;
+}
+
+int fat_ceil(int file_size_in_bytes)
+{
+    /* e.g. 8193 => 4096*3 = 12288, 12 => 4096 */
+    if (file_size_in_bytes % 4096 == 0)
+    {
+        return file_size_in_bytes;
+    }
+
+    return (file_size_in_bytes / 4096 + 1) * 4096;
 }

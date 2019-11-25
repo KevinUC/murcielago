@@ -177,8 +177,12 @@ int fs_lseek(int fd, size_t offset)
 
 int fs_write(int fd, void *buf, size_t count)
 {
-	/* TODO: Phase 4 */
-	return 0;
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
+	{
+		return -1;
+	}
+
+	return fs_write_impl(fd, buf, count);
 }
 
 int fs_read(int fd, void *buf, size_t count)
