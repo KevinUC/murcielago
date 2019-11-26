@@ -14,7 +14,6 @@ int fs_mount(const char *diskname)
 
 	if (block_disk_open(diskname) != 0)
 	{
-		printf("fs_mount: block_disk_open failure \n");
 		return -1;
 	}
 
@@ -28,9 +27,13 @@ int fs_mount(const char *diskname)
 
 int fs_umount(void)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (block_disk_close() != 0)
 	{
-		printf("fs_umount: block_disk_close faied\n");
 		return -1;
 	}
 
@@ -53,6 +56,11 @@ int fs_info(void)
 
 int fs_create(const char *filename)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	/* check if root block is full */
 	if (root_block_is_full())
 	{
@@ -79,7 +87,10 @@ int fs_create(const char *filename)
 
 int fs_delete(const char *filename)
 {
-	/* TODO: check if the file is currently open */
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
 
 	/* check if filename is NULL terminated and has valid length */
 	if (!is_filename_valid(filename))
@@ -118,12 +129,9 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
-	int new_fd = get_new_fd(filename);
-
-	/* check if there are already %FS_OPEN_MAX_COUNT files currently open */
-	if (new_fd < 0)
+	if (!fs_is_mounted())
 	{
-		return -1;
+		return -1; /* no underlying virtual disk was opened */
 	}
 
 	/* check if filename is valid and exists */
@@ -132,11 +140,24 @@ int fs_open(const char *filename)
 		return -1;
 	}
 
+	int new_fd = get_new_fd(filename);
+
+	/* check if there are already %FS_OPEN_MAX_COUNT files currently open */
+	if (new_fd < 0)
+	{
+		return -1; /* cannot open the file because no availble fd exists */
+	}
+
 	return new_fd;
 }
 
 int fs_close(int fd)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
 	{
 		return -1;
@@ -149,6 +170,11 @@ int fs_close(int fd)
 
 int fs_stat(int fd)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
 	{
 		return -1;
@@ -159,6 +185,11 @@ int fs_stat(int fd)
 
 int fs_lseek(int fd, size_t offset)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
 	{
 		return -1;
@@ -177,6 +208,11 @@ int fs_lseek(int fd, size_t offset)
 
 int fs_write(int fd, void *buf, size_t count)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
 	{
 		return -1;
@@ -187,6 +223,11 @@ int fs_write(int fd, void *buf, size_t count)
 
 int fs_read(int fd, void *buf, size_t count)
 {
+	if (!fs_is_mounted())
+	{
+		return -1; /* no underlying virtual disk was opened */
+	}
+
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || !fd_is_in_use(fd))
 	{
 		return -1;

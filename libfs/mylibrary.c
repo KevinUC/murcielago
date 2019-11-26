@@ -160,13 +160,11 @@ bool is_filename_valid(const char *filename)
             }
             else
             {
-                //printf("filename is valid\n");
                 return true;
             }
         }
         i++;
     }
-    //printf("filename is NOT valid\n");
     return false;
 }
 
@@ -270,7 +268,6 @@ void delete_file(const char *filename)
     }
 
     /* 2. delete file on fat block */
-    assert(idx_of_next_data_blk != 0);
 
     if (file_is_empty)
     {
@@ -405,8 +402,6 @@ void update_idx_of_1st_data_blk_in_root(int fd, uint16_t idx)
             return;
         }
     }
-
-    printf("update_idx_of_1st_data_blk_in_root fails \n");
 }
 
 void update_last_fat_entry_of_a_file(int fd, uint16_t new_entry)
@@ -438,8 +433,6 @@ void update_file_size(int fd, uint32_t size)
             return;
         }
     }
-
-    printf("update_file_size fails \n");
 }
 
 int fs_write_impl(int fd, void *buf, size_t count)
@@ -462,10 +455,6 @@ int fs_write_impl(int fd, void *buf, size_t count)
         uint16_t idx_of_1st_new_fat_entry = 10000; /* we need this to concatnate the last entry of the original file */
 
         fat_allocate_extra_entry(num_of_extra_entry_needed, &actual_amount_allocated, &idx_of_1st_new_fat_entry);
-        assert(actual_amount_allocated != 10000);
-        assert(idx_of_1st_new_fat_entry != 10000);
-
-        //printf("actual_num_of_fat_entries_allocated = %d\n", actual_amount_allocated);
 
         if (actual_amount_allocated < num_of_extra_entry_needed)
         {
@@ -513,7 +502,6 @@ int fs_write_impl(int fd, void *buf, size_t count)
             in_blk_offset = 0; /* for next blk, we will write from start */
             buf_offset += num_of_bytes_to_write_to_this_blk;
             data_blk_idx = find_idx_of_next_data_blk(data_blk_idx);
-            assert(data_blk_idx != FAT_EOC); /* find next data blk idx */
 
             assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* fetch next data block */
         }
@@ -568,7 +556,6 @@ int fs_read_impl(int fd, void *buf, size_t count)
             in_blk_offset = 0; /* for next blk, we will read from start */
             buf_offset += num_of_bytes_to_read_from_this_blk;
             data_blk_idx = find_idx_of_next_data_blk(data_blk_idx);
-            assert(data_blk_idx != FAT_EOC);                                                          /* find next data blk idx */
             assert(block_read(_superblock._data_blk_strt_idx + data_blk_idx, (void *)data_blk) == 0); /* update data blk */
         }
     }
@@ -599,7 +586,6 @@ uint16_t find_first_data_blk_idx_of_a_file(const char *filename)
         }
     }
 
-    printf("find_first_data_blk_idx_of_a_file fails \n");
     return 1000;
 }
 
@@ -611,7 +597,6 @@ bool filename_already_exists_in_root(const char *filename)
 
         if (root_entry_is_valid && strcmp(filename, (const char *)_rootdirectory._entrys[i]._filename) == 0)
         {
-            //printf("filename exists in the root dir\n");
             return true;
         }
     }
@@ -622,13 +607,11 @@ bool filename_already_exists_in_root(const char *filename)
 bool fs_mount_read_fat_section()
 {
     _fat_section = malloc(_superblock._total_FAT_blk_cnt * sizeof(fatblock));
-    assert(_fat_section != NULL);
 
     for (int i = 0; i < _superblock._total_FAT_blk_cnt; i++)
     {
         if (block_read(_fat_block_strt_idx + i, (void *)&_fat_section[i]) != 0)
         {
-            printf("block_read %d th fat block fails\n", i);
             return false;
         }
     }
@@ -711,7 +694,6 @@ bool fs_mount_read_root_directory_block()
     if (block_read(_superblock._root_blk_strt_idx,
                    (void *)&_rootdirectory) != 0)
     {
-        printf("block_read root dir fails\n");
         return false;
     }
 
@@ -728,7 +710,6 @@ bool fs_mount_read_superblock()
 
     if (block_read(0, (void *)&_superblock) != 0)
     {
-        printf("block_read superblock fails\n");
         return false;
     }
 
@@ -736,13 +717,11 @@ bool fs_mount_read_superblock()
 
     if (strncmp((const char *)_superblock._signature, _signature, 8) != 0)
     {
-        printf("signature doesn't match\n");
         return false;
     }
 
     if (block_disk_count() != _superblock._total_blk_cnt)
     {
-        printf("block_disk_count doesn't match\n");
         return false;
     }
 

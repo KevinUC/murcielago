@@ -1,5 +1,5 @@
 # Target programs
-programs := test_fs.x phase3_test.x
+programs := test_fs.x fs_my_test.x
 
 # File-system library
 FSLIB := libfs

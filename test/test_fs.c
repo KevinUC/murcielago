@@ -14,22 +14,24 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 #define test_fs_error(fmt, ...) \
-	fprintf(stderr, "%s: "fmt"\n", __func__, ##__VA_ARGS__)
+	fprintf(stderr, "%s: " fmt "\n", __func__, ##__VA_ARGS__)
 
-#define die(...)				\
-do {							\
-	test_fs_error(__VA_ARGS__);	\
-	exit(1);					\
-} while (0)
+#define die(...)                    \
+	do                              \
+	{                               \
+		test_fs_error(__VA_ARGS__); \
+		exit(1);                    \
+	} while (0)
 
-#define die_perror(msg)			\
-do {							\
-	perror(msg);				\
-	exit(1);					\
-} while (0)
+#define die_perror(msg) \
+	do                  \
+	{                   \
+		perror(msg);    \
+		exit(1);        \
+	} while (0)
 
-
-struct thread_arg {
+struct thread_arg
+{
 	int argc;
 	char **argv;
 };
@@ -51,18 +53,21 @@ void thread_fs_stat(void *arg)
 		die("Cannot mount diskname");
 
 	fs_fd = fs_open(filename);
-	if (fs_fd < 0) {
+	if (fs_fd < 0)
+	{
 		fs_umount();
 		die("Cannot open file");
 	}
 
 	stat = fs_stat(fs_fd);
-	if (stat < 0) {
+	if (stat < 0)
+	{
 		fs_close(fs_fd);
 		fs_umount();
 		die("Cannot stat file");
 	}
-	if (!stat) {
+	if (!stat)
+	{
 		fs_close(fs_fd);
 		fs_umount();
 		/* Nothing to read, file is empty */
@@ -70,7 +75,8 @@ void thread_fs_stat(void *arg)
 		return;
 	}
 
-	if (fs_close(fs_fd)) {
+	if (fs_close(fs_fd))
+	{
 		fs_umount();
 		die("Cannot close file");
 	}
@@ -98,23 +104,27 @@ void thread_fs_cat(void *arg)
 		die("Cannot mount diskname");
 
 	fs_fd = fs_open(filename);
-	if (fs_fd < 0) {
+	if (fs_fd < 0)
+	{
 		fs_umount();
 		die("Cannot open file");
 	}
 
 	stat = fs_stat(fs_fd);
-	if (stat < 0) {
+	if (stat < 0)
+	{
 		fs_umount();
 		die("Cannot stat file");
 	}
-	if (!stat) {
+	if (!stat)
+	{
 		/* Nothing to read, file is empty */
 		printf("Empty file\n");
 		return;
 	}
 	buf = malloc(stat);
-	if (!buf) {
+	if (!buf)
+	{
 		perror("malloc");
 		fs_umount();
 		die("Cannot malloc");
@@ -122,7 +132,8 @@ void thread_fs_cat(void *arg)
 
 	read = fs_read(fs_fd, buf, stat);
 
-	if (fs_close(fs_fd)) {
+	if (fs_close(fs_fd))
+	{
 		fs_umount();
 		die("Cannot close file");
 	}
@@ -151,7 +162,8 @@ void thread_fs_rm(void *arg)
 	if (fs_mount(diskname))
 		die("Cannot mount diskname");
 
-	if (fs_delete(filename)) {
+	if (fs_delete(filename))
+	{
 		fs_umount();
 		die("Cannot delete file");
 	}
@@ -197,20 +209,23 @@ void thread_fs_add(void *arg)
 	if (fs_mount(diskname))
 		die("Cannot mount diskname");
 
-	if (fs_create(filename)) {
+	if (fs_create(filename))
+	{
 		fs_umount();
 		die("Cannot create file");
 	}
 
 	fs_fd = fs_open(filename);
-	if (fs_fd < 0) {
+	if (fs_fd < 0)
+	{
 		fs_umount();
 		die("Cannot open file");
 	}
 
 	written = fs_write(fs_fd, buf, st.st_size);
 
-	if (fs_close(fs_fd)) {
+	if (fs_close(fs_fd))
+	{
 		fs_umount();
 		die("Cannot close file");
 	}
@@ -271,17 +286,17 @@ size_t get_argv(char *argv)
 	return (size_t)ret;
 }
 
-static struct {
+static struct
+{
 	const char *name;
-	void(*func)(void *);
+	void (*func)(void *);
 } commands[] = {
-	{ "info",	thread_fs_info },
-	{ "ls",		thread_fs_ls },
-	{ "add",	thread_fs_add },
-	{ "rm",		thread_fs_rm },
-	{ "cat",	thread_fs_cat },
-	{ "stat",	thread_fs_stat }
-};
+	{"info", thread_fs_info},
+	{"ls", thread_fs_ls},
+	{"add", thread_fs_add},
+	{"rm", thread_fs_rm},
+	{"cat", thread_fs_cat},
+	{"stat", thread_fs_stat}};
 
 void usage(char *program)
 {
@@ -313,13 +328,16 @@ int main(int argc, char **argv)
 	arg.argc = --argc;
 	arg.argv = &argv[1];
 
-	for (i = 0; i < ARRAY_SIZE(commands); i++) {
-		if (!strcmp(cmd, commands[i].name)) {
+	for (i = 0; i < ARRAY_SIZE(commands); i++)
+	{
+		if (!strcmp(cmd, commands[i].name))
+		{
 			commands[i].func(&arg);
 			break;
 		}
 	}
-	if (i == ARRAY_SIZE(commands)) {
+	if (i == ARRAY_SIZE(commands))
+	{
 		test_fs_error("invalid command '%s'", cmd);
 		usage(program);
 	}
